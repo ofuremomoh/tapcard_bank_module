@@ -1,0 +1,103 @@
+#from bank factory 
+from flask import Flask
+from flask_bcrypt import Bcrypt
+from flask_login import LoginManager
+from flask import session
+
+#from bank factory to be editted
+
+from flask import render_template,url_for,flash,redirect,request,Blueprint
+from bankfactory.recharge.forms import MobileRecharge,DTHRecharge,ElecRecharge
+from bankfactory import bcrypt
+from functools import wraps
+from Utils.ConfigReader import getInstance
+from Utils.DBConnectivity import DBConnectivity
+from Utils.GmailFactory import send_email
+from bankfactory import session
+from numpy import double
+
+#from bank factory forms 
+from flask_wtf import FlaskForm
+from wtforms import StringField,PasswordField,SubmitField,BooleanField,FileField,IntegerField,SelectField,FloatField
+from wtforms.validators import DataRequired,Email,EqualTo,Length
+from flask_wtf.file import FileAllowed
+from wtforms.fields.html5 import DateField
+
+
+recharge = Blueprint('recharge',__name__)
+
+app.config['SECRET_KEY'] = '125a172d79899a122269f137c78485b0'
+
+bcrypt = Bcrypt(app)
+
+#check User logged in or not
+def is_logged_in(f):
+    @wraps(f)
+    def wrap(*args, **kwargs):
+        if 'logged_in' in session:
+            return f(*args,**kwargs)
+        else:
+            flash("Unauthorized, Please Login", "danger")
+            return redirect(url_for("customer.login"))      
+    return wrap
+
+@recharge.route('/rechargehome')
+@is_logged_in
+def rechargehome():
+    return render_template("rechargehome.html")
+
+
+
+
+
+@recharge.route('/rechargemobile',methods=['GET','POST'])
+@is_logged_in
+def rechargemobile():
+    reader = getInstance()
+    con = DBConnectivity.getConnection(reader.get("Credential", "hostname"),reader.get("Credential", "username"), reader.get("Credential", "password"), reader.get("Credential", "database"))
+    
+    
+    form = MobileRecharge()
+    if form.validate_on_submit():
+        if form.mobileno.data < 9999999999 and form.mobileno.data > 9999999:
+            query = "select * from bankdetails where ACCOUNTNO='"+session['AccountNo']+"'"  # this should be the ID of the User, use form.id.data or arg.request.json
+            customer = DBConnectivity.getQueryResult(con, query).fetchone()                 
+            balance = customer[3]                                                           # This will be the person's available balance in his
+            recharge_balance = int(form.mobileplan.data.split(" ")[0])                      # Recharge Amount 
+            recharge_balance = double(recharge_balance)
+            if(balance >= recharge_balance):                                                
+                account_balance = balance - recharge_balance
+                Transaction_Details = "To : MobileRecahrge/"+str(form.mobileno.data)+"/"+form.provider.data+" Service Provider"
+                query1 = "INSERT INTO TRANSACTION(ACCOUNTNO,TRANSACTIONDETAILS,AMOUNT,TRANSACTIONTYPE,BALANCE) VALUES('"+session['AccountNo']+"','"+Transaction_Details+"',"+str(recharge_balance)+",'D',"+str(account_balance)+")"
+                query2 = "update bankdetails set BALANCE="+str(account_balance)+" where ACCOUNTNO='"+session['AccountNo']+"'"
+                
+                DBConnectivity.updateDatabase(con, query1)
+                DBConnectivity.updateDatabase(con, query2)
+                flash("Your mobile has been successfully Recharged","success")
+                return redirect(url_for('recharge.rechargemobile'))
+            else:
+                flash("Insufficient Balance","danger")
+                return redirect(url_for('recharge.rechargemobile'))
+        else:
+            flash("Wrong Mobile No","danger")
+            return redirect(url_for('recharge.rechargemobile'))
+    return render_template("rechargemobile.html",form=form)
+
+
+class MobileRecharge(FlaskForm):
+    #Mobile Plan
+    mobileno = IntegerField('Mobile No',validators=[DataRequired()])
+    Mobile_Plan = [('11 ₹      8-days validity','11₹      8-days validity'),('49 ₹      21-days validity','49₹      21-days validity'),('149 ₹      1-month validity','149₹      1-month validity')]
+    mobileplan = SelectField('Mobile Plan',validators=[DataRequired()],choices=Mobile_Plan)
+    Provider = [('Airtel','Airtel'),('Vodafone','Vodafone'),('Idea','Idea'),('Jio','Jio'),('BSNL','BSNL')]
+    provider = SelectField('Provider',validators=[DataRequired()],choices=Provider)
+    submit = SubmitField('Recahrge')
+
+
+
+
+
+
+
+
+
